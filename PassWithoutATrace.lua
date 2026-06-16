@@ -422,23 +422,31 @@ end
 -- Scholar Path Builder
 -------------------------------------------------------------------------------
 
-local function build_scholar_actions(state)
+local function build_scholar_actions(state, mode)
+    mode = mode or 'both'
     local actions = {}
     local buffs = state.buffs or {}
+
+    local do_sneak = mode ~= 'invis'
+    local do_invis = mode ~= 'sneak'
 
     if not buffs[BUFF_LIGHT_ARTS] and not buffs[BUFF_ADDENDUM_WHITE] then
         actions[#actions + 1] = {type = 'ja', name = 'Light Arts', target = '<me>'}
     end
 
-    if not buffs[BUFF_ACCESSION] then
-        actions[#actions + 1] = {type = 'ja', name = 'Accession', target = '<me>'}
+    if do_sneak then
+        if not buffs[BUFF_ACCESSION] then
+            actions[#actions + 1] = {type = 'ja', name = 'Accession', target = '<me>'}
+        end
+        actions[#actions + 1] = {type = 'ma', name = 'Sneak', target = '<me>'}
     end
 
-    actions[#actions + 1] = {type = 'ma', name = 'Sneak', target = '<me>'}
-
-    actions[#actions + 1] = {type = 'ja', name = 'Accession', target = '<me>'}
-
-    actions[#actions + 1] = {type = 'ma', name = 'Invisible', target = '<me>'}
+    if do_invis then
+        if do_sneak or not buffs[BUFF_ACCESSION] then
+            actions[#actions + 1] = {type = 'ja', name = 'Accession', target = '<me>'}
+        end
+        actions[#actions + 1] = {type = 'ma', name = 'Invisible', target = '<me>'}
+    end
 
     return actions
 end
@@ -447,7 +455,8 @@ end
 -- Multi-Caster Round Robin Builder
 -------------------------------------------------------------------------------
 
-local function build_multicaster_actions(casters, non_casters)
+local function build_multicaster_actions(casters, non_casters, mode)
+    mode = mode or 'both'
     local plans = {}
     for _, c in ipairs(casters) do
         plans[c.name] = {}
@@ -457,23 +466,30 @@ local function build_multicaster_actions(casters, non_casters)
         plans[nc.name] = {}
     end
 
-    for _, caster in ipairs(casters) do
-        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = '<me>'}
-    end
-
+    local do_sneak = mode ~= 'invis'
+    local do_invis = mode ~= 'sneak'
     local caster_count = #casters
-    for i, nc in ipairs(non_casters) do
-        local caster = casters[((i - 1) % caster_count) + 1]
-        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = nc.name}
+
+    if do_sneak then
+        for _, caster in ipairs(casters) do
+            plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = '<me>'}
+        end
+
+        for i, nc in ipairs(non_casters) do
+            local caster = casters[((i - 1) % caster_count) + 1]
+            plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = nc.name}
+        end
     end
 
-    for i, nc in ipairs(non_casters) do
-        local caster = casters[((i - 1) % caster_count) + 1]
-        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = nc.name}
-    end
+    if do_invis then
+        for i, nc in ipairs(non_casters) do
+            local caster = casters[((i - 1) % caster_count) + 1]
+            plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = nc.name}
+        end
 
-    for _, caster in ipairs(casters) do
-        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = '<me>'}
+        for _, caster in ipairs(casters) do
+            plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = '<me>'}
+        end
     end
 
     return plans
@@ -483,7 +499,8 @@ end
 -- Single Caster Builder
 -------------------------------------------------------------------------------
 
-local function build_single_caster_solo(caster, others)
+local function build_single_caster_solo(caster, others, mode)
+    mode = mode or 'both'
     local plans = {}
     plans[caster.name] = {}
 
@@ -491,17 +508,24 @@ local function build_single_caster_solo(caster, others)
         plans[other.name] = {}
     end
 
-    plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = '<me>'}
+    local do_sneak = mode ~= 'invis'
+    local do_invis = mode ~= 'sneak'
 
-    for _, other in ipairs(others) do
-        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = other.name}
+    if do_sneak then
+        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = '<me>'}
+
+        for _, other in ipairs(others) do
+            plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Sneak', target = other.name}
+        end
     end
 
-    for _, other in ipairs(others) do
-        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = other.name}
-    end
+    if do_invis then
+        for _, other in ipairs(others) do
+            plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = other.name}
+        end
 
-    plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = '<me>'}
+        plans[caster.name][#plans[caster.name] + 1] = {type = 'ma', name = 'Invisible', target = '<me>'}
+    end
 
     return plans
 end
@@ -559,14 +583,22 @@ local function get_party_names()
     return names
 end
 
-local function dispatch_plans(plans)
+local function dispatch_plans(plans, mode)
+    mode = mode or 'both'
     local player = windower.ffxi.get_player()
     if not player then return end
 
+    local do_sneak = mode ~= 'invis'
+    local do_invis = mode ~= 'sneak'
+
     for name, actions in pairs(plans) do
         local full_actions = {}
-        full_actions[#full_actions + 1] = {type = 'cancel', name = 'Sneak'}
-        full_actions[#full_actions + 1] = {type = 'cancel', name = 'Invisible'}
+        if do_sneak then
+            full_actions[#full_actions + 1] = {type = 'cancel', name = 'Sneak'}
+        end
+        if do_invis then
+            full_actions[#full_actions + 1] = {type = 'cancel', name = 'Invisible'}
+        end
         for _, a in ipairs(actions) do
             full_actions[#full_actions + 1] = a
         end
@@ -580,7 +612,8 @@ local function dispatch_plans(plans)
     end
 end
 
-local function execute_plan()
+local function execute_plan(mode)
+    mode = mode or 'both'
     local player = windower.ffxi.get_player()
     if not player then
         chat('Not logged in.')
@@ -607,9 +640,16 @@ local function execute_plan()
         return
     end
 
+    local do_sneak = mode ~= 'invis'
+    local do_invis = mode ~= 'sneak'
+    local mode_label = mode == 'sneak' and 'Sneak' or (mode == 'invis' and 'Invisible' or 'Sneak+Invis')
+
     local sch_member = nil
     for _, m in ipairs(members) do
-        if m.has_accession and m.can_cast_sneak and m.can_cast_invis then
+        local can_do = m.has_accession
+        if do_sneak then can_do = can_do and m.can_cast_sneak end
+        if do_invis then can_do = can_do and m.can_cast_invis end
+        if can_do then
             sch_member = m
             break
         end
@@ -621,22 +661,24 @@ local function execute_plan()
             charges = get_stratagem_charges()
         end
 
-        local needed = 2
+        local needed = 0
         local buffs = sch_member.buffs or {}
+        if do_sneak then needed = needed + 1 end
+        if do_invis then needed = needed + 1 end
         if buffs[BUFF_ACCESSION] then needed = needed - 1 end
 
         if sch_member.name == player.name and charges < needed then
             chat('Scholar lacks stratagem charges (' .. charges .. '/' .. needed .. '). Falling through to next strategy.')
         else
             chat('Using Scholar AoE strategy via ' .. sch_member.name .. '.')
-            local actions = build_scholar_actions(sch_member)
+            local actions = build_scholar_actions(sch_member, mode)
             local plans = {[sch_member.name] = actions}
             for _, m in ipairs(members) do
                 if m.name ~= sch_member.name then
                     plans[m.name] = {}
                 end
             end
-            dispatch_plans(plans)
+            dispatch_plans(plans, mode)
             return
         end
     end
@@ -644,7 +686,7 @@ local function execute_plan()
     local jig_plans = {}
     local remaining_members = {}
     for _, m in ipairs(members) do
-        if settings.useJig and m.has_spectral_jig and not (m.can_cast_sneak and m.can_cast_invis) then
+        if mode == 'both' and settings.useJig and m.has_spectral_jig and not (m.can_cast_sneak and m.can_cast_invis) then
             jig_plans[m.name] = build_spectral_jig_actions(m)
         else
             remaining_members[#remaining_members + 1] = m
@@ -654,7 +696,10 @@ local function execute_plan()
     local casters = {}
     local non_casters = {}
     for _, m in ipairs(remaining_members) do
-        if m.can_cast_sneak and m.can_cast_invis then
+        local is_caster = true
+        if do_sneak and not m.can_cast_sneak then is_caster = false end
+        if do_invis and not m.can_cast_invis then is_caster = false end
+        if is_caster then
             casters[#casters + 1] = m
         else
             non_casters[#non_casters + 1] = m
@@ -667,13 +712,21 @@ local function execute_plan()
         for _, nc in ipairs(non_casters) do
             local has_oil = (nc.oil_count or 0) > 0
             local has_powder = (nc.powder_count or 0) > 0
-            if has_oil and has_powder then
-                item_plans[nc.name] = {
-                    {type = 'get_item', name = 'Silent Oil', item_id = SILENT_OIL_ID},
-                    {type = 'item', name = 'Silent Oil'},
-                    {type = 'get_item', name = 'Prism Powder', item_id = PRISM_POWDER_ID},
-                    {type = 'item', name = 'Prism Powder'},
-                }
+            local can_use_items = true
+            if do_sneak and not has_oil then can_use_items = false end
+            if do_invis and not has_powder then can_use_items = false end
+
+            if can_use_items then
+                local item_actions = {}
+                if do_sneak then
+                    item_actions[#item_actions + 1] = {type = 'get_item', name = 'Silent Oil', item_id = SILENT_OIL_ID}
+                    item_actions[#item_actions + 1] = {type = 'item', name = 'Silent Oil'}
+                end
+                if do_invis then
+                    item_actions[#item_actions + 1] = {type = 'get_item', name = 'Prism Powder', item_id = PRISM_POWDER_ID}
+                    item_actions[#item_actions + 1] = {type = 'item', name = 'Prism Powder'}
+                end
+                item_plans[nc.name] = item_actions
             else
                 cast_targets[#cast_targets + 1] = nc
             end
@@ -684,20 +737,20 @@ local function execute_plan()
 
     if #casters >= 2 then
         chat('Using multi-caster round robin strategy (' .. #casters .. ' casters).')
-        local plans = build_multicaster_actions(casters, cast_targets)
+        local plans = build_multicaster_actions(casters, cast_targets, mode)
         for name, acts in pairs(item_plans) do plans[name] = acts end
         for name, acts in pairs(jig_plans) do plans[name] = acts end
-        dispatch_plans(plans)
+        dispatch_plans(plans, mode)
         return
     end
 
     if #casters == 1 then
         local caster = casters[1]
         chat('Using single caster strategy via ' .. caster.name .. '.')
-        local plans = build_single_caster_solo(caster, cast_targets)
+        local plans = build_single_caster_solo(caster, cast_targets, mode)
         for name, acts in pairs(item_plans) do plans[name] = acts end
         for name, acts in pairs(jig_plans) do plans[name] = acts end
-        dispatch_plans(plans)
+        dispatch_plans(plans, mode)
         return
     end
 
@@ -712,11 +765,11 @@ local function execute_plan()
             chat(nc.name .. ' has no items and no caster available.')
             plans[nc.name] = {}
         end
-        dispatch_plans(plans)
+        dispatch_plans(plans, mode)
         return
     end
 
-    chat('No casters and item usage is disabled. Cannot sneak/invis the party.')
+    chat('No casters and item usage is disabled. Cannot ' .. mode_label:lower() .. ' the party.')
 end
 
 -------------------------------------------------------------------------------
@@ -813,6 +866,18 @@ windower.register_event('addon command', function(command, ...)
         windower.send_ipc_message('PWAT:QUERY')
         coroutine.schedule(execute_plan, 1)
 
+    elseif command == 'sneak' then
+        chat('Querying party state (Sneak only)...')
+        broadcast_state()
+        windower.send_ipc_message('PWAT:QUERY')
+        coroutine.schedule(function() execute_plan('sneak') end, 1)
+
+    elseif command == 'invis' then
+        chat('Querying party state (Invisible only)...')
+        broadcast_state()
+        windower.send_ipc_message('PWAT:QUERY')
+        coroutine.schedule(function() execute_plan('invis') end, 1)
+
     elseif command == 'items' then
         if args[1] then
             local val = args[1]:lower()
@@ -872,6 +937,8 @@ windower.register_event('addon command', function(command, ...)
         chat('PassWithoutATrace v' .. _addon.version)
         chat('Usage:')
         chat('  //pwat          - Sneak+Invis the whole party')
+        chat('  //pwat sneak    - Sneak only the whole party')
+        chat('  //pwat invis    - Invisible only the whole party')
         chat('  //pwat items [on|off] - Toggle item usage (current: ' .. (use_items and 'ON' or 'OFF') .. ')')
         chat('  //pwat jig [on|off]   - Toggle Spectral Jig (current: ' .. (settings.useJig and 'ON' or 'OFF') .. ')')
         chat('  //pwat status   - Show party cache')
