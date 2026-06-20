@@ -148,6 +148,32 @@ local function ensure_item_in_inventory(item_id)
 end
 
 -------------------------------------------------------------------------------
+-- Stratagem Charge Check
+-------------------------------------------------------------------------------
+
+local function get_stratagem_charges()
+    local player = windower.ffxi.get_player()
+    if not player then return 0 end
+
+    local sch_level = 0
+    if player.main_job == 'SCH' then
+        sch_level = player.main_job_level
+    elseif player.sub_job == 'SCH' then
+        sch_level = player.sub_job_level
+    end
+
+    if sch_level == 0 then return 0 end
+
+    local recasts = windower.ffxi.get_ability_recasts()
+    local strat_recast = recasts[231] or 0
+    local max_strats = math.floor((sch_level + 10) / 20)
+    local recharge_time = 4 * 60
+    local current = math.floor(max_strats - max_strats * strat_recast / recharge_time)
+
+    return math.max(0, current)
+end
+
+-------------------------------------------------------------------------------
 -- State Gathering
 -------------------------------------------------------------------------------
 
@@ -205,6 +231,7 @@ local function gather_local_state()
 
     local oil_count = count_item_all_bags(SILENT_OIL_ID)
     local powder_count = count_item_all_bags(PRISM_POWDER_ID)
+    local strat_charges = get_stratagem_charges()
 
     local buffs = get_active_buffs()
     local buff_list = {}
@@ -227,6 +254,7 @@ local function gather_local_state()
         has_spectral_jig = has_spectral_jig,
         oil_count = oil_count,
         powder_count = powder_count,
+        strat_charges = strat_charges,
         buffs = buffs,
         buff_list = buff_list,
     }
@@ -251,6 +279,7 @@ local function serialize_state(state)
         tostring(state.oil_count),
         tostring(state.powder_count),
         state.has_spectral_jig and '1' or '0',
+        tostring(state.strat_charges),
         table.concat(state.buff_list, ','),
     }
     return table.concat(parts, '|')
@@ -264,11 +293,11 @@ local function deserialize_state(msg)
         idx = idx + 1
     end
 
-    if idx - 1 < 13 then return nil end
+    if idx - 1 < 14 then return nil end
 
     local buff_names = {}
-    if parts[14] and parts[14] ~= '' then
-        for name in parts[14]:gmatch('[^,]+') do
+    if parts[15] and parts[15] ~= '' then
+        for name in parts[15]:gmatch('[^,]+') do
             buff_names[name] = true
         end
     end
@@ -286,6 +315,7 @@ local function deserialize_state(msg)
         oil_count = tonumber(parts[11]) or 0,
         powder_count = tonumber(parts[12]) or 0,
         has_spectral_jig = parts[13] == '1',
+        strat_charges = tonumber(parts[14]) or 0,
         buffs = buff_names,
     }
 end
@@ -541,32 +571,6 @@ local function build_spectral_jig_actions(state)
 end
 
 -------------------------------------------------------------------------------
--- Stratagem Charge Check
--------------------------------------------------------------------------------
-
-local function get_stratagem_charges()
-    local player = windower.ffxi.get_player()
-    if not player then return 0 end
-
-    local sch_level = 0
-    if player.main_job == 'SCH' then
-        sch_level = player.main_job_level
-    elseif player.sub_job == 'SCH' then
-        sch_level = player.sub_job_level
-    end
-
-    if sch_level == 0 then return 0 end
-
-    local recasts = windower.ffxi.get_ability_recasts()
-    local strat_recast = recasts[231] or 0
-    local max_strats = math.floor((sch_level + 10) / 20)
-    local recharge_time = 4 * 60
-    local current = math.floor(max_strats - max_strats * strat_recast / recharge_time)
-
-    return math.max(0, current)
-end
-
--------------------------------------------------------------------------------
 -- Plan Builder & Dispatcher
 -------------------------------------------------------------------------------
 
@@ -656,10 +660,9 @@ local function execute_plan(mode)
     end
 
     if sch_member then
-        local charges = 0
-        if sch_member.name == player.name then
-            charges = get_stratagem_charges()
-        end
+        local charges = sch_member.name == player.name
+            and get_stratagem_charges()
+            or (sch_member.strat_charges or 0)
 
         local needed = 0
         local buffs = sch_member.buffs or {}
@@ -667,8 +670,8 @@ local function execute_plan(mode)
         if do_invis then needed = needed + 1 end
         if buffs[BUFF_ACCESSION] then needed = needed - 1 end
 
-        if sch_member.name == player.name and charges < needed then
-            chat('Scholar lacks stratagem charges (' .. charges .. '/' .. needed .. '). Falling through to next strategy.')
+        if charges < needed then
+            chat('Scholar ' .. sch_member.name .. ' lacks stratagem charges (' .. charges .. '/' .. needed .. '). Falling through to next strategy.')
         else
             chat('Using Scholar AoE strategy via ' .. sch_member.name .. '.')
             local actions = build_scholar_actions(sch_member, mode)
