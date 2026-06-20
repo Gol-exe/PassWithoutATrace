@@ -9,6 +9,7 @@ local res = require('resources')
 
 local defaults = {
     useJig = true,
+    useAccession = true,
 }
 local settings = config.load(defaults)
 
@@ -649,13 +650,15 @@ local function execute_plan(mode)
     local mode_label = mode == 'sneak' and 'Sneak' or (mode == 'invis' and 'Invisible' or 'Sneak+Invis')
 
     local sch_member = nil
-    for _, m in ipairs(members) do
-        local can_do = m.has_accession
-        if do_sneak then can_do = can_do and m.can_cast_sneak end
-        if do_invis then can_do = can_do and m.can_cast_invis end
-        if can_do then
-            sch_member = m
-            break
+    if settings.useAccession then
+        for _, m in ipairs(members) do
+            local can_do = m.has_accession
+            if do_sneak then can_do = can_do and m.can_cast_sneak end
+            if do_invis then can_do = can_do and m.can_cast_invis end
+            if can_do then
+                sch_member = m
+                break
+            end
         end
     end
 
@@ -894,6 +897,20 @@ windower.register_event('addon command', function(command, ...)
         end
         chat('Item usage: ' .. (use_items and 'ON' or 'OFF'))
 
+    elseif command == 'accession' then
+        if args[1] then
+            local val = args[1]:lower()
+            if val == 'on' or val == 'true' then
+                settings.useAccession = true
+            elseif val == 'off' or val == 'false' then
+                settings.useAccession = false
+            end
+        else
+            settings.useAccession = not settings.useAccession
+        end
+        settings:save()
+        chat('Accession usage: ' .. (settings.useAccession and 'ON' or 'OFF'))
+
     elseif command == 'jig' then
         if args[1] then
             local val = args[1]:lower()
@@ -929,6 +946,7 @@ windower.register_event('addon command', function(command, ...)
             end
         end
         chat('Item usage: ' .. (use_items and 'ON' or 'OFF'))
+        chat('Accession: ' .. (settings.useAccession and 'ON' or 'OFF'))
         chat('Spectral Jig: ' .. (settings.useJig and 'ON' or 'OFF'))
 
     elseif command == 'cancel' then
@@ -942,8 +960,9 @@ windower.register_event('addon command', function(command, ...)
         chat('  //pwat          - Sneak+Invis the whole party')
         chat('  //pwat sneak    - Sneak only the whole party')
         chat('  //pwat invis    - Invisible only the whole party')
-        chat('  //pwat items [on|off] - Toggle item usage (current: ' .. (use_items and 'ON' or 'OFF') .. ')')
-        chat('  //pwat jig [on|off]   - Toggle Spectral Jig (current: ' .. (settings.useJig and 'ON' or 'OFF') .. ')')
+        chat('  //pwat items [on|off]     - Toggle item usage (current: ' .. (use_items and 'ON' or 'OFF') .. ')')
+        chat('  //pwat accession [on|off] - Toggle SCH Accession AoE (current: ' .. (settings.useAccession and 'ON' or 'OFF') .. ')')
+        chat('  //pwat jig [on|off]       - Toggle Spectral Jig (current: ' .. (settings.useJig and 'ON' or 'OFF') .. ')')
         chat('  //pwat status   - Show party cache')
         chat('  //pwat cancel   - Cancel all pending actions')
         chat('  //pwat help     - Show this help')
