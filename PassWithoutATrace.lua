@@ -32,8 +32,8 @@ local BUFF_ACCESSION = 'Accession'
 
 local SEARCH_BAGS = {0, 5, 6, 7}
 
-local CAST_TIME_DELAY = 5
-local JA_DELAY = 2
+local CAST_TIME_DELAY = 6
+local JA_DELAY = 3
 local ITEM_DELAY = 3.5
 local ITEM_MOVE_DELAY = 0.6
 
@@ -375,7 +375,10 @@ local function process_next_action()
         table.remove(action_queue, 1)
         local success = ensure_item_in_inventory(action.item_id)
         if not success then
-            chat('Failed to retrieve ' .. (action.name or 'item') .. ' from bags.')
+            chat('Failed to retrieve ' .. (action.name or 'item') .. ' from bags. Skipping.')
+            if #action_queue > 0 and action_queue[1].type == 'item' then
+                table.remove(action_queue, 1)
+            end
         end
         coroutine.schedule(process_next_action, ITEM_MOVE_DELAY)
         return
@@ -623,6 +626,11 @@ local function execute_plan(mode)
     if not player then
         chat('Not logged in.')
         return
+    end
+
+    local fresh_state = gather_local_state()
+    if fresh_state then
+        party_cache[fresh_state.name] = fresh_state
     end
 
     local party_names = get_party_names()
