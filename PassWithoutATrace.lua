@@ -37,6 +37,10 @@ local JA_DELAY = 3
 local ITEM_DELAY = 3.5
 local ITEM_MOVE_DELAY = 0.6
 
+local CAST_VERIFY_POLL = 1
+local CAST_VERIFY_TIMEOUT = 15
+local MAX_CAST_RETRIES = 2
+
 -------------------------------------------------------------------------------
 -- State
 -------------------------------------------------------------------------------
@@ -68,6 +72,29 @@ end
 
 local function has_buff(name)
     return get_active_buffs()[name] or false
+end
+
+local function get_mob_buffs(mob_name)
+    local mob = windower.ffxi.get_mob_by_name(mob_name)
+    if not mob or not mob.buffs then return nil end
+    local buff_names = {}
+    for _, id in ipairs(mob.buffs) do
+        if res.buffs[id] then
+            buff_names[res.buffs[id].name] = true
+        end
+    end
+    return buff_names
+end
+
+-- Returns true/false when the buff state on the target is known, or nil
+-- when the target cannot currently be tracked (e.g. out of render range).
+local function target_has_buff(target, name)
+    if not target or target == '<me>' then
+        return has_buff(name)
+    end
+    local buffs = get_mob_buffs(target)
+    if not buffs then return nil end
+    return buffs[name] or false
 end
 
 local function player_knows_spell(spell_id)
@@ -339,7 +366,51 @@ local function clear_queue()
     executing = false
 end
 
-local function process_next_action()
+local process_next_action
+
+-- Polls the target's buffs after a cast to confirm the spell actually
+-- landed (instead of blindly assuming success after a fixed delay, which
+-- breaks with unusually high or low fast cast since the real cast time
+-- can land well outside CAST_TIME_DELAY). Retries the same cast if it
+-- appears to have failed (interrupt/resist/silence/etc.).
+local function verify_cast_success(action, elapsed)
+    -- Queue may have been cleared (zone, cancel) while we were waiting.
+    if action_queue[1] ~= action then return end
+
+    elapsed = elapsed or 0
+    local landed = target_has_buff(action.target, action.name)
+
+    if landed == true or landed == nil then
+        table.remove(action_queue, 1)
+        process_next_action()
+        return
+    end
+
+    if elapsed < CAST_VERIFY_TIMEOUT then
+        coroutine.schedule(function() verify_cast_success(action, elapsed + CAST_VERIFY_POLL) end, CAST_VERIFY_POLL)
+        return
+    end
+
+    action.retries = (action.retries or 0) + 1
+    local target_label = action.target or '<me>'
+    if action.retries > MAX_CAST_RETRIES then
+        chat(action.name .. ' on ' .. target_label .. ' failed after ' .. MAX_CAST_RETRIES .. ' retries. Giving up and moving on.')
+        table.remove(action_queue, 1)
+        process_next_action()
+        return
+    end
+
+    chat(action.name .. ' on ' .. target_label .. ' appears to have failed. Retrying (' .. action.retries .. '/' .. MAX_CAST_RETRIES .. ')...')
+    local recast = get_spell_recast_seconds(action.name)
+    local wait = recast > 0 and (recast + 0.5) or 0
+    coroutine.schedule(function()
+        if action_queue[1] ~= action then return end
+        windower.send_command('input /ma "' .. action.name .. '" ' .. target_label)
+        coroutine.schedule(function() verify_cast_success(action, 0) end, CAST_TIME_DELAY)
+    end, wait)
+end
+
+process_next_action = function()
     if #action_queue == 0 then
         queue_active = false
         executing = false
@@ -358,10 +429,10 @@ local function process_next_action()
             coroutine.schedule(process_next_action, recast + 0.5)
             return
         end
-        table.remove(action_queue, 1)
         local target = action.target or '<me>'
-        cmd = '/ma "' .. action.name .. '" ' .. target
-        delay = CAST_TIME_DELAY
+        windower.send_command('input /ma "' .. action.name .. '" ' .. target)
+        coroutine.schedule(function() verify_cast_success(action, 0) end, CAST_TIME_DELAY)
+        return
     elseif action.type == 'ja' then
         table.remove(action_queue, 1)
         local target = action.target or '<me>'
@@ -574,6 +645,24 @@ local function build_spectral_jig_actions(state)
     return actions
 end
 
+-- A caster who also has Spectral Jig should use the (free, instant) jig on
+-- themselves rather than spending a cast on their own self-buff. Their
+-- casting is still put to use on other party members. Strips any self-target
+-- Sneak/Invisible casts from the plan and prepends Spectral Jig instead.
+local function use_jig_for_self(actions)
+    local filtered = {}
+    for _, a in ipairs(actions) do
+        local is_self_buff = a.type == 'ma'
+            and (a.name == BUFF_SNEAK or a.name == BUFF_INVISIBLE)
+            and (a.target == nil or a.target == '<me>')
+        if not is_self_buff then
+            filtered[#filtered + 1] = a
+        end
+    end
+    table.insert(filtered, 1, {type = 'ja', name = 'Spectral Jig', target = '<me>'})
+    return filtered
+end
+
 -------------------------------------------------------------------------------
 -- Plan Builder & Dispatcher
 -------------------------------------------------------------------------------
@@ -709,12 +798,16 @@ local function execute_plan(mode)
 
     local casters = {}
     local non_casters = {}
+    local caster_jig_names = {}
     for _, m in ipairs(remaining_members) do
         local is_caster = true
         if do_sneak and not m.can_cast_sneak then is_caster = false end
         if do_invis and not m.can_cast_invis then is_caster = false end
         if is_caster then
             casters[#casters + 1] = m
+            if mode == 'both' and settings.useJig and m.has_spectral_jig then
+                caster_jig_names[m.name] = true
+            end
         else
             non_casters[#non_casters + 1] = m
         end
@@ -752,6 +845,9 @@ local function execute_plan(mode)
     if #casters >= 2 then
         chat('Using multi-caster round robin strategy (' .. #casters .. ' casters).')
         local plans = build_multicaster_actions(casters, cast_targets, mode)
+        for name in pairs(caster_jig_names) do
+            if plans[name] then plans[name] = use_jig_for_self(plans[name]) end
+        end
         for name, acts in pairs(item_plans) do plans[name] = acts end
         for name, acts in pairs(jig_plans) do plans[name] = acts end
         dispatch_plans(plans, mode)
@@ -762,6 +858,9 @@ local function execute_plan(mode)
         local caster = casters[1]
         chat('Using single caster strategy via ' .. caster.name .. '.')
         local plans = build_single_caster_solo(caster, cast_targets, mode)
+        if caster_jig_names[caster.name] and plans[caster.name] then
+            plans[caster.name] = use_jig_for_self(plans[caster.name])
+        end
         for name, acts in pairs(item_plans) do plans[name] = acts end
         for name, acts in pairs(jig_plans) do plans[name] = acts end
         dispatch_plans(plans, mode)

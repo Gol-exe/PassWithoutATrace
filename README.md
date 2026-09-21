@@ -10,8 +10,10 @@ The addon runs on every character in the party. When triggered, it collects each
 2. **Multi-Caster Round Robin** -- If multiple characters can cast Sneak/Invisible (WHM, RDM, SCH at sufficient level), they split the work between them.
 3. **Single Caster, Items On** -- Characters use items if available, caster handles all other targets sequentially.
 4. **Single Caster, Items off** -- Single caster casts on everyone sequentially. 
-4. **Spectral Jig** -- DNC characters (main or sub, level 25+) use Spectral Jig for themselves when they can't cast.
+4. **Spectral Jig** -- DNC characters (main or sub, level 25+) use Spectral Jig for themselves. This applies both when they can't cast at all, and when they can cast (e.g. WHM/DNC, RDM/DNC) -- a caster who also has Spectral Jig always jigs their own Sneak/Invisible instead of spending a cast on themselves, then uses their casting on other party members who need it.
 5. **Items** -- Non-casters with Silent Oil and Prism Powder use those items. Characters without items and without an available caster alert that they can't sneak/invisible.
+
+Every `/ma` cast is verified against the target's actual buff state afterward rather than assumed successful after a fixed delay. If a cast doesn't land (interrupted, resisted, silenced, etc. -- which is more likely to happen with unusually high or low Fast Cast skewing the real cast time), it's automatically retried (up to 2 times) before the addon moves on and reports the failure.
 
 ## Commands
 
@@ -46,7 +48,7 @@ All commands use the prefix `//pwat` (or `//passwithoutatrace`).
 - Character C: BLU/NIN (has Silent Oil + Prism Powder)
 - Character D: WAR/SAM (no items)
 
-**Result:** Multi-caster round robin. Character B is not assigned to Spectral Jig because they can cast. With items ON, Character C uses Silent Oil + Prism Powder. Character D is the only cast target, so the two casters split minimal work: one caster handles Character D's Sneak and Invisible, both casters handle their own buffs.
+**Result:** Multi-caster round robin. Character B still casts for the party since they can cast, but jigs their own Sneak/Invisible instead of casting on themselves since they also have Spectral Jig. With items ON, Character C uses Silent Oil + Prism Powder. Character D is the only cast target, so the two casters split minimal work: one caster handles Character D's Sneak and Invisible; Character A also casts their own buffs, Character B jigs.
 
 ### Example 3: DNC/NIN + 2 melee (no casters)
 
